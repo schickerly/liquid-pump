@@ -1,0 +1,140 @@
+# Liquid Pump Starter
+
+Starter desktop GUI for a pump fill workflow using:
+- HID scale reads
+- Serial relay control
+- Keyboard trigger (foot pedal)
+- Auto-stop at target weight
+- CSV fill logging
+- Basic USB-device visibility check hook
+
+## Run locally
+
+```bash
+python3 pump_controller.py
+```
+
+## Build a Windows EXE that updates from GitHub, then starts the pump app
+
+`updater_launcher.py` now targets the branch that contains the GUI app:
+- `REPO_URL = https://github.com/schickerly/liquid-pump.git`
+- `BRANCH = codex/create-gui-for-pump-control-system`
+
+If an old local clone points to a branch that does not contain `pump_controller.py`,
+the launcher now attempts fallback recovery and prints clear diagnostics.
+
+## Command Prompt commands (copy/paste)
+
+### A) Fresh clone of the correct branch
+
+```cmd
+cd %USERPROFILE%
+git clone --branch codex/create-gui-for-pump-control-system https://github.com/schickerly/liquid-pump.git
+cd liquid-pump
+```
+
+### B) Update an existing local clone to the correct branch
+
+```cmd
+cd %USERPROFILE%\liquid-pump
+git fetch origin
+git checkout codex/create-gui-for-pump-control-system
+git reset --hard origin/codex/create-gui-for-pump-control-system
+```
+
+### C) Build the EXE again
+
+```cmd
+py -m pip install --upgrade pip
+py -m pip install pyinstaller
+py -m PyInstaller --onefile --name PumpLauncher updater_launcher.py
+```
+
+EXE output:
+
+- `dist\PumpLauncher.exe`
+
+
+### Verified build script (recommended)
+
+To avoid ambiguity, run this from `C:\Users\schic\liquid-pump`:
+
+```cmd
+build_verified_launcher.cmd
+```
+
+It performs extra checks before build:
+1. Confirms `updater_launcher.py` is pinned to `codex/create-gui-for-pump-control-system`
+2. Confirms expected launcher version string
+3. Builds with `--clean`
+4. Runs `dist\PumpLauncher.exe --diagnose` so you can confirm the built binary itself reports the expected branch
+
+If diagnose output still says `main`, then the EXE being launched is not the one at `dist\PumpLauncher.exe` in your current folder.
+
+### D) Clean rebuild if an old EXE still pulls wrong branch
+
+```cmd
+cd %USERPROFILE%
+if exist liquid-pump rmdir /s /q liquid-pump
+git clone --branch codex/create-gui-for-pump-control-system https://github.com/schickerly/liquid-pump.git
+cd liquid-pump
+py -m pip install pyinstaller
+py -m PyInstaller --onefile --name PumpLauncher updater_launcher.py
+```
+
+Then replace old launcher with `dist\PumpLauncher.exe`.
+
+## Troubleshooting
+
+### Error: `Could not find ...\pump_controller.py`
+
+This means the local repo is on a branch without the GUI file.
+
+Fix by forcing the correct branch:
+
+```cmd
+cd %USERPROFILE%\liquid-pump
+git fetch origin
+git checkout codex/create-gui-for-pump-control-system
+git reset --hard origin/codex/create-gui-for-pump-control-system
+```
+
+Then rebuild and run the EXE again.
+
+
+### Error still shows `git checkout main`
+
+If launcher output shows `git checkout main`, you are running an **old EXE** built before the branch fix.
+
+Use this exact reset + rebuild flow:
+
+```cmd
+cd %USERPROFILE%
+if exist liquid-pump rmdir /s /q liquid-pump
+if exist PumpLauncher.exe del /f /q PumpLauncher.exe
+git clone --branch codex/create-gui-for-pump-control-system https://github.com/schickerly/liquid-pump.git
+cd liquid-pump
+py -m pip install --upgrade pip
+py -m pip install pyinstaller
+py -m PyInstaller --onefile --name PumpLauncher updater_launcher.py
+copy /y dist\PumpLauncher.exe %USERPROFILE%\Desktop\PumpLauncher.exe
+```
+
+When you run the new EXE, you should see:
+- `PumpLauncher version: 2026.03.11.3`
+- `Using repo: https://github.com/schickerly/liquid-pump.git | branch: codex/create-gui-for-pump-control-system`
+
+
+
+### Why `pump_controller.py` appears then disappears
+
+That behavior means a **different/older EXE** is being launched, and it is checking out `main` then hard-resetting.
+This rewrites `C:\Users\schic\liquid-pump` and removes files not on `main` (including `pump_controller.py`).
+
+Use this verification rule:
+- New EXE must print `PumpLauncher version: 2026.03.11.3`
+- New EXE must print `Executable: <full path>` so you can confirm which file is actually running
+- New EXE must print `branch: codex/create-gui-for-pump-control-system`
+
+To avoid stale copies, always run the EXE directly from `dist\PumpLauncher.exe` right after build, then copy that exact file to Desktop.
+
