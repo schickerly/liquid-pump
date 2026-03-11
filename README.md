@@ -27,6 +27,19 @@ Edit `updater_launcher.py` and set:
 - `REPO_URL` to your GitHub repo URL
 - `BRANCH` to the branch you deploy (usually `main`)
 
+### Common error: "Repository not found"
+
+If you see an error like this in `PumpLauncher.exe`:
+
+- `https://github.com/YOUR_ORG/YOUR_REPO.git not found`
+
+that means `REPO_URL` is still a placeholder.
+
+Fix:
+1. Open `updater_launcher.py`
+2. Set `REPO_URL` to your real repo, e.g. `https://github.com/my-org/liquid-pump.git`
+3. Rebuild the EXE with PyInstaller and replace the old EXE on the laptop
+
 ### 2) On a Windows build machine
 
 Install prerequisites:

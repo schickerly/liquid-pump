@@ -8,12 +8,12 @@ Intended flow for operators:
 
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 from pathlib import Path
 
-REPO_URL = "https://github.com/YOUR_ORG/YOUR_REPO.git"
+DEFAULT_REPO_URL = "https://github.com/YOUR_ORG/YOUR_REPO.git"
+REPO_URL = DEFAULT_REPO_URL
 REPO_DIR = Path.home() / "liquid-pump"
 BRANCH = "main"
 
@@ -21,6 +21,15 @@ BRANCH = "main"
 def run(cmd: list[str], cwd: Path | None = None) -> None:
     print("$", " ".join(cmd))
     subprocess.run(cmd, cwd=str(cwd) if cwd else None, check=True)
+
+
+def validate_config() -> None:
+    if "YOUR_ORG" in REPO_URL or "YOUR_REPO" in REPO_URL or REPO_URL == DEFAULT_REPO_URL:
+        raise ValueError(
+            "REPO_URL is still set to the placeholder value. "
+            "Edit updater_launcher.py and set REPO_URL to your real GitHub repo URL, "
+            "for example: https://github.com/my-org/liquid-pump.git"
+        )
 
 
 def ensure_repo() -> None:
@@ -43,6 +52,7 @@ def launch_app() -> None:
 
 def main() -> int:
     try:
+        validate_config()
         ensure_repo()
         launch_app()
         return 0
