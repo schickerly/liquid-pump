@@ -18,7 +18,7 @@ python3 pump_controller.py
 
 `updater_launcher.py` now targets the branch that contains the GUI app:
 - `REPO_URL = https://github.com/schickerly/liquid-pump.git`
-- `BRANCH = codex/create-gui-for-pump-control-system`
+- `BRANCH = codex/create-gui-for-pump-control-system-zyq18x`
 
 If an old local clone points to a branch that does not contain `pump_controller.py`,
 the launcher now attempts fallback recovery and prints clear diagnostics.
@@ -29,7 +29,7 @@ the launcher now attempts fallback recovery and prints clear diagnostics.
 
 ```cmd
 cd %USERPROFILE%
-git clone --branch codex/create-gui-for-pump-control-system https://github.com/schickerly/liquid-pump.git
+git clone --branch codex/create-gui-for-pump-control-system-zyq18x https://github.com/schickerly/liquid-pump.git
 cd liquid-pump
 ```
 
@@ -38,8 +38,8 @@ cd liquid-pump
 ```cmd
 cd %USERPROFILE%\liquid-pump
 git fetch origin
-git checkout codex/create-gui-for-pump-control-system
-git reset --hard origin/codex/create-gui-for-pump-control-system
+git checkout codex/create-gui-for-pump-control-system-zyq18x
+git reset --hard origin/codex/create-gui-for-pump-control-system-zyq18x
 ```
 
 ### C) Build the EXE again
@@ -64,7 +64,7 @@ build_verified_launcher.cmd
 ```
 
 It performs extra checks before build:
-1. Confirms `updater_launcher.py` is pinned to `codex/create-gui-for-pump-control-system`
+1. Confirms `updater_launcher.py` is pinned to `codex/create-gui-for-pump-control-system-zyq18x`
 2. Confirms expected launcher version string
 3. Builds with `--clean`
 4. Runs `dist\PumpLauncher.exe --diagnose` so you can confirm the built binary itself reports the expected branch
@@ -76,7 +76,7 @@ If diagnose output still says `main`, then the EXE being launched is not the one
 ```cmd
 cd %USERPROFILE%
 if exist liquid-pump rmdir /s /q liquid-pump
-git clone --branch codex/create-gui-for-pump-control-system https://github.com/schickerly/liquid-pump.git
+git clone --branch codex/create-gui-for-pump-control-system-zyq18x https://github.com/schickerly/liquid-pump.git
 cd liquid-pump
 py -m pip install pyinstaller
 py -m PyInstaller --onefile --name PumpLauncher updater_launcher.py
@@ -95,8 +95,8 @@ Fix by forcing the correct branch:
 ```cmd
 cd %USERPROFILE%\liquid-pump
 git fetch origin
-git checkout codex/create-gui-for-pump-control-system
-git reset --hard origin/codex/create-gui-for-pump-control-system
+git checkout codex/create-gui-for-pump-control-system-zyq18x
+git reset --hard origin/codex/create-gui-for-pump-control-system-zyq18x
 ```
 
 Then rebuild and run the EXE again.
@@ -112,7 +112,7 @@ Use this exact reset + rebuild flow:
 cd %USERPROFILE%
 if exist liquid-pump rmdir /s /q liquid-pump
 if exist PumpLauncher.exe del /f /q PumpLauncher.exe
-git clone --branch codex/create-gui-for-pump-control-system https://github.com/schickerly/liquid-pump.git
+git clone --branch codex/create-gui-for-pump-control-system-zyq18x https://github.com/schickerly/liquid-pump.git
 cd liquid-pump
 py -m pip install --upgrade pip
 py -m pip install pyinstaller
@@ -121,8 +121,8 @@ copy /y dist\PumpLauncher.exe %USERPROFILE%\Desktop\PumpLauncher.exe
 ```
 
 When you run the new EXE, you should see:
-- `PumpLauncher version: 2026.03.11.3`
-- `Using repo: https://github.com/schickerly/liquid-pump.git | branch: codex/create-gui-for-pump-control-system`
+- `PumpLauncher version: 2026.03.11.4`
+- `Using repo: https://github.com/schickerly/liquid-pump.git | branch: codex/create-gui-for-pump-control-system-zyq18x`
 
 
 
@@ -132,9 +132,9 @@ That behavior means a **different/older EXE** is being launched, and it is check
 This rewrites `C:\Users\schic\liquid-pump` and removes files not on `main` (including `pump_controller.py`).
 
 Use this verification rule:
-- New EXE must print `PumpLauncher version: 2026.03.11.3`
+- New EXE must print `PumpLauncher version: 2026.03.11.4`
 - New EXE must print `Executable: <full path>` so you can confirm which file is actually running
-- New EXE must print `branch: codex/create-gui-for-pump-control-system`
+- New EXE must print `branch: codex/create-gui-for-pump-control-system-zyq18x`
 
 To avoid stale copies, always run the EXE directly from `dist\PumpLauncher.exe` right after build, then copy that exact file to Desktop.
 

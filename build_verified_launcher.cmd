@@ -2,12 +2,12 @@
 setlocal
 
 echo [1/5] Verifying launcher source config...
-findstr /c:"BRANCH = \"codex/create-gui-for-pump-control-system\"" updater_launcher.py >nul || (
-  echo ERROR: updater_launcher.py is not pinned to codex/create-gui-for-pump-control-system
+findstr /c:"BRANCH = \"codex/create-gui-for-pump-control-system-zyq18x\"" updater_launcher.py >nul || (
+  echo ERROR: updater_launcher.py is not pinned to codex/create-gui-for-pump-control-system-zyq18x
   exit /b 1
 )
-findstr /c:"LAUNCHER_VERSION = \"2026.03.11.3\"" updater_launcher.py >nul || (
-  echo ERROR: updater_launcher.py does not have expected launcher version 2026.03.11.3
+findstr /c:"LAUNCHER_VERSION = \"2026.03.11.4\"" updater_launcher.py >nul || (
+  echo ERROR: updater_launcher.py does not have expected launcher version 2026.03.11.4
   exit /b 1
 )
 

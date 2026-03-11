@@ -9,8 +9,8 @@ from pathlib import Path
 REPO_URL = "https://github.com/schickerly/liquid-pump.git"
 REPO_DIR = Path.home() / "liquid-pump"
 # Primary deploy branch that contains pump_controller.py
-BRANCH = "codex/create-gui-for-pump-control-system"
-LAUNCHER_VERSION = "2026.03.11.3"
+BRANCH = "codex/create-gui-for-pump-control-system-zyq18x"
+LAUNCHER_VERSION = "2026.03.11.4"
 # Keep fallback empty to avoid accidentally switching to branches without pump_controller.py.
 FALLBACK_BRANCHES: list[str] = []
 
