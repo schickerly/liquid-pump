@@ -6,10 +6,11 @@ Starts at 33% forward, slows near target, stops at target, brief reverse to redu
 
 from __future__ import annotations
 
+import os
 import sys
 import threading
 import time
-from datetime import date
+from datetime import date, datetime
 import tkinter as tk
 from tkinter import ttk
 from typing import Any, Callable, Optional
@@ -67,6 +68,22 @@ FOOT_PEDAL_DEBOUNCE_S = 0.15
 # Edit this when you rotate the token on the field PC. Warning appears TOKEN_WARN_DAYS_BEFORE days before.
 TOKEN_EXPIRES_ON = date(2026, 7, 1)
 TOKEN_WARN_DAYS_BEFORE = 30
+
+
+def _latest_build_label_text() -> str:
+    """Filesystem mtime of running .py or frozen EXE (local time); updates after git pull replaces files."""
+    if getattr(sys, "frozen", False):
+        path = sys.executable
+        kind = "EXE"
+    else:
+        path = __file__
+        kind = "script"
+    try:
+        ts = os.path.getmtime(path)
+        stamp = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
+    except OSError:
+        stamp = "—"
+    return f"Latest build ({kind}): {stamp}"
 
 
 def _approach_zone_g(target_g: int) -> int:
@@ -276,6 +293,16 @@ class PumpFillGui:
             wraplength=520,
             justify=tk.LEFT,
         ).pack(anchor=tk.W, padx=4)
+
+        tk.Label(
+            frm,
+            text=_latest_build_label_text(),
+            fg="#8ab",
+            bg="#0f1419",
+            font=("Consolas", 9),
+            wraplength=520,
+            justify=tk.LEFT,
+        ).pack(anchor=tk.W, padx=4, pady=(2, 0))
 
         self.token_reminder_label = tk.Label(
             frm,
