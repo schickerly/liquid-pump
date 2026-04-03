@@ -35,9 +35,10 @@ def validate_config() -> None:
 
 
 def sync_branch(branch: str) -> None:
-    run(["git", "fetch", "origin"], cwd=REPO_DIR)
+    run(["git", "fetch", "origin", branch], cwd=REPO_DIR)
     run(["git", "checkout", branch], cwd=REPO_DIR)
-    run(["git", "reset", "--hard", f"origin/{branch}"], cwd=REPO_DIR)
+    # Safer on shared machines: update only via fast-forward pulls.
+    run(["git", "pull", "--ff-only", "origin", branch], cwd=REPO_DIR)
 
 
 def ensure_repo() -> None:

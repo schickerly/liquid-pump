@@ -14,6 +14,37 @@ Starter desktop GUI for a pump fill workflow using:
 python3 pump_controller.py
 ```
 
+## Shared PC safe update mode
+
+For a shared machine, use read-only GitHub credentials and fast-forward-only pulls:
+
+- Setup guide: `SHARED_PC_GIT_PULL_SETUP.md`
+- Credential helper script: `scripts/setup_readonly_git_cred.ps1`
+
+## Seaflow pump + Arduino smoke test
+
+- Firmware: `arduino/pump_motor_tester/pump_motor_tester.ino` (upload in Arduino IDE)
+- Wiring notes: `arduino/pump_motor_tester/WIRING.md`
+- PC GUI (from repo folder):
+
+```powershell
+cd "C:\Users\schic\liquid-pump"
+py -m pip install pyserial keyboard hidapi
+py pump_motor_test_gui.py
+```
+
+- **Auto-fill** (target weight, ramp, drip reverse, purge): `py pump_fill_gui.py` (same deps: `pyserial`, `keyboard`, `hidapi`)
+
+- **Fill GUI as EXE (field laptop):**
+  1. On a dev machine with Python: run `build_pump_fill_gui.cmd` → `dist\PumpFillGui.exe`
+  2. Commit/push the repo; on the field PC clone the repo once and set up read-only Git per `SHARED_PC_GIT_PULL_SETUP.md`
+  3. Copy `dist\PumpFillGui.exe` into that clone’s `dist\` folder (or rebuild there), then run `scripts\create_desktop_shortcut_fill.ps1` once to put **Liquid Pump Fill** on the desktop. That shortcut runs `scripts\run_pump_fill_gui.cmd`, which does `git pull --ff-only` then starts the EXE (or `pump_fill_gui.py` if no EXE is built yet).
+
+- **Motor test EXE:** run `build_pump_motor_test_gui.cmd` → `dist\PumpMotorTestGui.exe`
+- **Motor test launcher:** `scripts\run_pump_motor_gui.cmd` (pull + run exe or `.py`)
+
+- Shared PC: use read-only Git credentials per `SHARED_PC_GIT_PULL_SETUP.md` (no personal browser login required).
+
 ## Build a Windows EXE that updates from GitHub, then starts the pump app
 
 `updater_launcher.py` now targets the branch that contains the GUI app:
