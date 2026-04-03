@@ -37,7 +37,8 @@ FILL_CONTROL_PERIOD_S = 0.08
 # After target hit: pause, short reverse, then stop.
 DRIP_SETTLE_S = 0.08
 DRIP_REVERSE_SPEED_PCT = 18
-DRIP_REVERSE_DURATION_S = 0.35
+# End-of-fill reverse to pull liquid back (was 0.35s; +300% for heavier drip lines).
+DRIP_REVERSE_DURATION_S = 1.4
 
 # --- Dymo M10 HID ---
 DYMO_SCALE_VENDOR_ID = 0x0922

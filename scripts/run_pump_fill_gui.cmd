@@ -22,11 +22,9 @@ if errorlevel 1 (
 )
 
 :run_gui
-if exist "dist\PumpFillGui.exe" (
-  start "" "%~dp0..\dist\PumpFillGui.exe"
-) else (
-  py "%~dp0..\pump_fill_gui.py"
-  if errorlevel 1 python "%~dp0..\pump_fill_gui.py"
-)
+REM Always run pump_fill_gui.py from the repo so git pull updates apply. For offline use with no Python,
+REM run dist\PumpFillGui.exe directly (or rebuild after pulling).
+py "%~dp0..\pump_fill_gui.py"
+if errorlevel 1 python "%~dp0..\pump_fill_gui.py"
 
 endlocal
