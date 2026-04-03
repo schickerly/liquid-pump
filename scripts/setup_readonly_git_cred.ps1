@@ -1,6 +1,7 @@
 param(
     [string]$GitHubUser = "x-access-token",
-    [string]$Host = "github.com"
+    # Must not be named "Host" — $Host is reserved in PowerShell.
+    [string]$GitHost = "github.com"
 )
 
 $ErrorActionPreference = "Stop"
@@ -32,7 +33,7 @@ try {
     }
 
     # Stores a machine-local credential only for github.com.
-    cmdkey /generic:"git:https://$Host" /user:"$GitHubUser" /pass:"$tokenPlain" | Out-Null
+    cmdkey /generic:"git:https://$GitHost" /user:"$GitHubUser" /pass:"$tokenPlain" | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to store credential in Windows Credential Manager."
     }
