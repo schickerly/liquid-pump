@@ -123,6 +123,27 @@ def _fill_effective_max_pct(target_g: int, user_max_pct: int, elapsed_s: float) 
     return int(round(FILL_SPEED_START_PCT + (bulk_cap - FILL_SPEED_START_PCT) * t))
 
 
+def _beep_fill_done() -> None:
+    """Short beep when a fill finishes successfully (Windows speaker API + fallbacks)."""
+    try:
+        if sys.platform == "win32":
+            import winsound
+
+            try:
+                winsound.Beep(1000, 200)
+            except RuntimeError:
+                winsound.MessageBeep(winsound.MB_OK)
+        else:
+            sys.stdout.write("\a")
+            sys.stdout.flush()
+    except Exception:
+        try:
+            sys.stdout.write("\a")
+            sys.stdout.flush()
+        except Exception:
+            pass
+
+
 class PumpFillGui:
     def __init__(self) -> None:
         self.ser: Optional[serial.Serial] = None
@@ -846,6 +867,7 @@ class PumpFillGui:
             else:
                 self.root.after(0, lambda: self.fill_status_var.set("Fill: done"))
                 self._log("# fill complete")
+                _beep_fill_done()
         finally:
             self._fill_active = False
             if self._fill_abort.is_set():
