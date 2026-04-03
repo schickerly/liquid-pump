@@ -110,7 +110,7 @@ def _speed_for_remaining(remaining_g: int, target_g: int, max_pct: int) -> int:
 
 
 def _fill_effective_max_pct(target_g: int, user_max_pct: int, elapsed_s: float) -> int:
-    """Bulk-phase ceiling: <=800 g uses slider only; >800 g uses max(66, slider), ramping 33→bulk over 2 s."""
+    """Bulk ceiling: ≤800 g uses slider % only; >800 g uses max(66, slider), ramping 33→bulk over 2 s."""
     user_max_pct = max(FILL_SPEED_MIN_PCT + 1, min(100, int(user_max_pct)))
     if target_g <= FILL_LARGE_TARGET_THRESHOLD_G:
         return user_max_pct
@@ -174,6 +174,8 @@ class PumpFillGui:
         self._foot_pedal_tk_fallback = False
 
         self._last_sent_speed: Optional[int] = None
+        self._user_speed_lock = threading.Lock()
+        self._user_speed_cached = FILL_SPEED_START_PCT
 
         self.root = tk.Tk()
         self.root.title("Pump fill (scale + Arduino)")
@@ -240,8 +242,10 @@ class PumpFillGui:
         tk.Label(
             fill_frm,
             text=(
-                f"Max pump speed ({USER_PUMP_SPEED_SLIDER_MIN}–{USER_PUMP_SPEED_SLIDER_MAX}%) — "
-                f"fill uses this then ramps down to {FILL_SPEED_MIN_PCT}% near target; purge uses this in reverse"
+                f"Max pump speed ({USER_PUMP_SPEED_SLIDER_MIN}–{USER_PUMP_SPEED_SLIDER_MAX}%), default {FILL_SPEED_START_PCT}% — "
+                f"targets ≤{FILL_LARGE_TARGET_THRESHOLD_G} g use this for fill (change anytime, including during fill); "
+                f"targets above that ramp to ≥{FILL_LARGE_TARGET_BULK_CAP_PCT}% as configured. "
+                f"Ramps down to {FILL_SPEED_MIN_PCT}% near target. Purge uses this in reverse."
             ),
             fg="#9ab",
             bg="#0f1419",
@@ -266,6 +270,8 @@ class PumpFillGui:
             showvalue=1,
         )
         self.user_speed_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.user_fill_speed_var.trace_add("write", lambda *_: self._refresh_user_speed_cache())
+        self._refresh_user_speed_cache()
 
         self.fill_status_var = tk.StringVar(value="Fill: idle")
         tk.Label(
@@ -637,15 +643,22 @@ class PumpFillGui:
         with self._grams_lock:
             return self._latest_grams
 
-    def _user_pump_speed_pct(self) -> int:
+    def _refresh_user_speed_cache(self) -> None:
+        """Keep slider value in a lock-protected int so fill/purge threads never read Tk vars off the main thread."""
         try:
             v = int(self.user_fill_speed_var.get())
         except (tk.TclError, ValueError, TypeError):
             v = FILL_SPEED_START_PCT
-        return max(
+        clamped = max(
             FILL_SPEED_MIN_PCT + 1,
             min(USER_PUMP_SPEED_SLIDER_MAX, max(USER_PUMP_SPEED_SLIDER_MIN, v)),
         )
+        with self._user_speed_lock:
+            self._user_speed_cached = clamped
+
+    def _user_pump_speed_pct(self) -> int:
+        with self._user_speed_lock:
+            return self._user_speed_cached
 
     def _parse_target_weight(self) -> Optional[int]:
         raw = self.target_entry.get().strip()
