@@ -30,11 +30,13 @@ DEFAULT_BAUD = 115200
 
 # --- Fill control ---
 FILL_SPEED_START_PCT = 33
-FILL_SPEED_MIN_PCT = 8
+# Floor speed in the last part of the approach band (lower = less overshoot if scale lags).
+FILL_SPEED_MIN_PCT = 5
 # Slow-down band: at least this many grams before target, or this fraction of target (whichever is larger).
-FILL_APPROACH_MIN_G = 35
-FILL_APPROACH_FRAC = 0.12
-FILL_CONTROL_PERIOD_S = 0.08
+FILL_APPROACH_MIN_G = 55
+FILL_APPROACH_FRAC = 0.22
+# Longer period gives the scale time to update before the next speed check.
+FILL_CONTROL_PERIOD_S = 0.12
 # After target hit: pause, short reverse, then stop.
 DRIP_SETTLE_S = 0.08
 DRIP_REVERSE_SPEED_PCT = 18
