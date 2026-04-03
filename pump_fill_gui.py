@@ -9,6 +9,7 @@ from __future__ import annotations
 import sys
 import threading
 import time
+from datetime import date
 import tkinter as tk
 from tkinter import ttk
 from typing import Any, Callable, Optional
@@ -60,6 +61,11 @@ USER_PUMP_SPEED_SLIDER_MAX = 100
 FOOT_PEDAL_KEY = "b"
 # Short debounce avoids double start when both global hook and Tk see the same pedal press.
 FOOT_PEDAL_DEBOUNCE_S = 0.15
+
+# GitHub fine-grained read-only PAT — set to the token’s expiry date (or “created + 90 days”).
+# Edit this when you rotate the token on the field PC. Warning appears TOKEN_WARN_DAYS_BEFORE days before.
+TOKEN_EXPIRES_ON = date(2026, 7, 1)
+TOKEN_WARN_DAYS_BEFORE = 30
 
 
 def _approach_zone_g(target_g: int) -> int:
@@ -270,6 +276,19 @@ class PumpFillGui:
             justify=tk.LEFT,
         ).pack(anchor=tk.W, padx=4)
 
+        self.token_reminder_label = tk.Label(
+            frm,
+            text="",
+            fg="#678",
+            bg="#0f1419",
+            font=("Segoe UI", 9),
+            wraplength=520,
+            justify=tk.LEFT,
+        )
+        self.token_reminder_label.pack(anchor=tk.W, padx=4, pady=(0, 4))
+        self._update_token_reminder()
+        self._schedule_token_reminder_tick()
+
         tk.Label(frm, text="Log", fg="#567", bg="#0f1419").pack(anchor=tk.W)
         self.log = tk.Text(frm, height=10, bg="#0a0e12", fg="#8f8", font=("Consolas", 9), wrap=tk.WORD)
         self.log.pack(fill=tk.BOTH, expand=True, pady=(0, 6))
@@ -279,6 +298,33 @@ class PumpFillGui:
         self._setup_foot_pedal()
         self._reconnect_scale()
         threading.Thread(target=self._scale_thread, daemon=True).start()
+
+    def _update_token_reminder(self) -> None:
+        today = date.today()
+        exp = TOKEN_EXPIRES_ON
+        days_left = (exp - today).days
+        if days_left < 0:
+            text = (
+                f"Git read-only token expired on {exp.isoformat()} — create a new fine-grained PAT, "
+                f"run scripts\\setup_readonly_git_cred.ps1, and set TOKEN_EXPIRES_ON in pump_fill_gui.py"
+            )
+            fg = "#ff6666"
+        elif days_left <= TOKEN_WARN_DAYS_BEFORE:
+            text = (
+                f"Git token expires in {days_left} day(s) ({exp.isoformat()}) — rotate PAT and update TOKEN_EXPIRES_ON"
+            )
+            fg = "#ffaa44"
+        else:
+            text = (
+                f"Git token reminder: expires {exp.isoformat()} "
+                f"({days_left} days). Warning {TOKEN_WARN_DAYS_BEFORE} days before."
+            )
+            fg = "#6a7a8c"
+        self.token_reminder_label.config(text=text, fg=fg)
+
+    def _schedule_token_reminder_tick(self) -> None:
+        self._update_token_reminder()
+        self.root.after(3_600_000, self._schedule_token_reminder_tick)
 
     # --- logging ---
     def _log(self, line: str) -> None:
