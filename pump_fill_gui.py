@@ -287,7 +287,7 @@ class PumpFillGui:
             frm,
             text=(
                 f"Foot pedal '{FOOT_PEDAL_KEY}': start/stop fill or purge; 'b' never types in target box. "
-                "Purge speed = slider. Global hook may need Run as administrator."
+                "Purge speed = slider (change while purging). Global hook may need Run as administrator."
             ),
             fg="#567",
             bg="#0f1419",
@@ -686,15 +686,18 @@ class PumpFillGui:
 
     def _run_purge(self) -> None:
         try:
-            sp = self._user_pump_speed_pct()
             self._serial_write("D R", log=True)
-            self._serial_write(f"S {sp}", log=True)
-            self.root.after(
-                0,
-                lambda s=sp: self.pump_speed_var.set(f"Pump: {s}% reverse (purge)"),
-            )
             self.root.after(0, lambda: self.fill_status_var.set("Purge: running"))
+            last_sp: Optional[int] = None
             while not self._purge_stop.is_set():
+                sp = self._user_pump_speed_pct()
+                if sp != last_sp:
+                    self._serial_write(f"S {sp}", log=True)
+                    last_sp = sp
+                    self.root.after(
+                        0,
+                        lambda s=sp: self.pump_speed_var.set(f"Pump: {s}% reverse (purge)"),
+                    )
                 time.sleep(0.05)
         finally:
             self._serial_write("STOP", log=False)
