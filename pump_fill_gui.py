@@ -2,7 +2,7 @@
 Auto-fill: Dymo M10 scale + Arduino pump (S/D/STOP protocol).
 
 Starts at 33% forward (targets over 800 g ramp to 66% over 1 s, capped by slider), slows near target,
-stops at target, brief reverse to reduce drips.
+targets over 2000 g use a 1 s time-based final slowdown, stops at target, brief reverse to reduce drips.
 """
 
 from __future__ import annotations
@@ -35,6 +35,9 @@ FILL_SPEED_START_PCT = 33
 FILL_LARGE_TARGET_THRESHOLD_G = 800
 FILL_LARGE_TARGET_BULK_CAP_PCT = 66
 FILL_LARGE_TARGET_RAMP_UP_S = 1.0
+# Above this, end-of-fill slowdown is time-based (wall clock), not the gram band curve.
+FILL_VERY_LARGE_TARGET_THRESHOLD_G = 2000
+FILL_VERY_LARGE_RAMP_DOWN_S = 1.0
 # Floor speed in the last part of the approach band (lower = less overshoot if scale lags).
 FILL_SPEED_MIN_PCT = 5
 # Slow-down band: at least this many grams before target, or this fraction of target (whichever is larger).
@@ -805,7 +808,15 @@ class PumpFillGui:
                     f"# large target: ramp {FILL_SPEED_START_PCT}%→{top}% over {FILL_LARGE_TARGET_RAMP_UP_S:.0f}s "
                     f"(floor {FILL_LARGE_TARGET_BULK_CAP_PCT}%, slider {u}%), slow band {zone} g (½ base for speed)"
                 )
+            if target_g > FILL_VERY_LARGE_TARGET_THRESHOLD_G:
+                self._log(
+                    f"# very large target: final slowdown = {FILL_VERY_LARGE_RAMP_DOWN_S:.0f}s time ramp "
+                    f"(starts when < {zone} g to go)"
+                )
             no_gram_since: Optional[float] = None
+            use_time_ramp_down = target_g > FILL_VERY_LARGE_TARGET_THRESHOLD_G
+            t_ramp_down_start: Optional[float] = None
+            speed_ramp_down_start: Optional[int] = None
             while not self._fill_abort.is_set():
                 if self.scale_device is None:
                     self._log("# fill abort: scale USB disconnected")
@@ -848,14 +859,40 @@ class PumpFillGui:
                 eff_max = _fill_effective_max_pct(
                     target_g, self._user_pump_speed_pct(), time.monotonic() - fill_t0
                 )
-                speed = _speed_for_remaining(remaining, target_g, eff_max, zone)
+                if use_time_ramp_down and remaining < zone:
+                    if t_ramp_down_start is None:
+                        t_ramp_down_start = time.monotonic()
+                        speed_ramp_down_start = max(
+                            FILL_SPEED_MIN_PCT + 1, min(100, int(eff_max))
+                        )
+                    elapsed_rd = time.monotonic() - t_ramp_down_start
+                    if elapsed_rd >= FILL_VERY_LARGE_RAMP_DOWN_S:
+                        speed = FILL_SPEED_MIN_PCT
+                    else:
+                        frac = 1.0 - elapsed_rd / FILL_VERY_LARGE_RAMP_DOWN_S
+                        speed = int(
+                            round(
+                                FILL_SPEED_MIN_PCT
+                                + (speed_ramp_down_start - FILL_SPEED_MIN_PCT) * frac
+                            )
+                        )
+                        speed = max(
+                            FILL_SPEED_MIN_PCT,
+                            min(speed_ramp_down_start, speed),
+                        )
+                else:
+                    speed = _speed_for_remaining(remaining, target_g, eff_max, zone)
                 if speed != self._last_sent_speed:
                     self._serial_write(f"S {speed}", log=True)
                     self._last_sent_speed = speed
+                if use_time_ramp_down and remaining < zone:
+                    rd_note = f"{FILL_VERY_LARGE_RAMP_DOWN_S:.0f}s time rampdown"
+                else:
+                    rd_note = f"slow band {zone} g"
                 self.root.after(
                     0,
-                    lambda sp=speed, rem=remaining, z=zone: self.pump_speed_var.set(
-                        f"Pump: {sp}% forward  ( {rem} g to go, slow band {z} g )"
+                    lambda sp=speed, rem=remaining, note=rd_note: self.pump_speed_var.set(
+                        f"Pump: {sp}% forward  ( {rem} g to go, {note} )"
                     ),
                 )
                 time.sleep(FILL_CONTROL_PERIOD_S)
