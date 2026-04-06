@@ -38,6 +38,8 @@ FILL_LARGE_TARGET_RAMP_UP_S = 1.0
 # Above this, end-of-fill slowdown is time-based (wall clock), not the gram band curve.
 FILL_VERY_LARGE_TARGET_THRESHOLD_G = 2000
 FILL_VERY_LARGE_RAMP_DOWN_S = 1.0
+# >2000 g time rampdown ends at this % (not FILL_SPEED_MIN_PCT — avoids crawling at 5%).
+FILL_VERY_LARGE_RAMP_DOWN_MIN_PCT = FILL_SPEED_START_PCT
 # Floor speed in the last part of the approach band (lower = less overshoot if scale lags).
 FILL_SPEED_MIN_PCT = 5
 # Slow-down band: at least this many grams before target, or this fraction of target (whichever is larger).
@@ -866,18 +868,18 @@ class PumpFillGui:
                             FILL_SPEED_MIN_PCT + 1, min(100, int(eff_max))
                         )
                     elapsed_rd = time.monotonic() - t_ramp_down_start
+                    vl_floor = FILL_VERY_LARGE_RAMP_DOWN_MIN_PCT
                     if elapsed_rd >= FILL_VERY_LARGE_RAMP_DOWN_S:
-                        speed = FILL_SPEED_MIN_PCT
+                        speed = vl_floor
                     else:
                         frac = 1.0 - elapsed_rd / FILL_VERY_LARGE_RAMP_DOWN_S
                         speed = int(
                             round(
-                                FILL_SPEED_MIN_PCT
-                                + (speed_ramp_down_start - FILL_SPEED_MIN_PCT) * frac
+                                vl_floor + (speed_ramp_down_start - vl_floor) * frac
                             )
                         )
                         speed = max(
-                            FILL_SPEED_MIN_PCT,
+                            vl_floor,
                             min(speed_ramp_down_start, speed),
                         )
                 else:
