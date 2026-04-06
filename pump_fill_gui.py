@@ -1,7 +1,7 @@
 """
 Auto-fill: Dymo M10 scale + Arduino pump (S/D/STOP protocol).
 
-Starts at 33% forward (targets over 800 g ramp to 66% over 2 s, capped by slider), slows near target,
+Starts at 33% forward (targets over 800 g ramp to 66% over 1 s, capped by slider), slows near target,
 stops at target, brief reverse to reduce drips.
 """
 
@@ -34,7 +34,7 @@ FILL_SPEED_START_PCT = 33
 # Targets above this use a higher bulk cap and a ramp-up from FILL_SPEED_START_PCT.
 FILL_LARGE_TARGET_THRESHOLD_G = 800
 FILL_LARGE_TARGET_BULK_CAP_PCT = 66
-FILL_LARGE_TARGET_RAMP_UP_S = 2.0
+FILL_LARGE_TARGET_RAMP_UP_S = 1.0
 # Floor speed in the last part of the approach band (lower = less overshoot if scale lags).
 FILL_SPEED_MIN_PCT = 5
 # Slow-down band: at least this many grams before target, or this fraction of target (whichever is larger).
@@ -97,9 +97,19 @@ def _approach_zone_g(target_g: int) -> int:
     return max(FILL_APPROACH_MIN_G, int(target_g * FILL_APPROACH_FRAC))
 
 
-def _speed_for_remaining(remaining_g: int, target_g: int, max_pct: int) -> int:
+def _approach_zone_for_fill(target_g: int) -> int:
+    """Gram band for end-of-fill slowdown; large targets use half the band (faster ramp-down)."""
+    z = _approach_zone_g(target_g)
+    if target_g > FILL_LARGE_TARGET_THRESHOLD_G:
+        return max(1, z // 2)
+    return z
+
+
+def _speed_for_remaining(
+    remaining_g: int, target_g: int, max_pct: int, approach_zone_g: Optional[int] = None
+) -> int:
     max_pct = max(FILL_SPEED_MIN_PCT + 1, min(100, int(max_pct)))
-    zone = _approach_zone_g(target_g)
+    zone = _approach_zone_g(target_g) if approach_zone_g is None else approach_zone_g
     if remaining_g >= zone:
         return max_pct
     if remaining_g <= 0:
@@ -110,7 +120,7 @@ def _speed_for_remaining(remaining_g: int, target_g: int, max_pct: int) -> int:
 
 
 def _fill_effective_max_pct(target_g: int, user_max_pct: int, elapsed_s: float) -> int:
-    """Bulk ceiling: ≤800 g uses slider % only; >800 g uses max(66, slider), ramping 33→bulk over 2 s."""
+    """Bulk ceiling: ≤800 g uses slider % only; >800 g uses max(66, slider), ramping 33→bulk over FILL_LARGE_TARGET_RAMP_UP_S."""
     user_max_pct = max(FILL_SPEED_MIN_PCT + 1, min(100, int(user_max_pct)))
     if target_g <= FILL_LARGE_TARGET_THRESHOLD_G:
         return user_max_pct
@@ -785,7 +795,7 @@ class PumpFillGui:
 
     def _run_fill(self, target_g: int, start_g: int) -> None:
         try:
-            zone = _approach_zone_g(target_g)
+            zone = _approach_zone_for_fill(target_g)
             self._serial_write("D F", log=True)
             fill_t0 = time.monotonic()
             if target_g > FILL_LARGE_TARGET_THRESHOLD_G:
@@ -793,7 +803,7 @@ class PumpFillGui:
                 top = max(FILL_LARGE_TARGET_BULK_CAP_PCT, u)
                 self._log(
                     f"# large target: ramp {FILL_SPEED_START_PCT}%→{top}% over {FILL_LARGE_TARGET_RAMP_UP_S:.0f}s "
-                    f"(floor {FILL_LARGE_TARGET_BULK_CAP_PCT}%, slider {u}%)"
+                    f"(floor {FILL_LARGE_TARGET_BULK_CAP_PCT}%, slider {u}%), slow band {zone} g (½ base for speed)"
                 )
             no_gram_since: Optional[float] = None
             while not self._fill_abort.is_set():
@@ -838,7 +848,7 @@ class PumpFillGui:
                 eff_max = _fill_effective_max_pct(
                     target_g, self._user_pump_speed_pct(), time.monotonic() - fill_t0
                 )
-                speed = _speed_for_remaining(remaining, target_g, eff_max)
+                speed = _speed_for_remaining(remaining, target_g, eff_max, zone)
                 if speed != self._last_sent_speed:
                     self._serial_write(f"S {speed}", log=True)
                     self._last_sent_speed = speed
