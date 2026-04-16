@@ -45,6 +45,9 @@ FILL_SPEED_MIN_PCT = 5
 # Slow-down band: at least this many grams before target, or this fraction of target (whichever is larger).
 FILL_APPROACH_MIN_G = 55
 FILL_APPROACH_FRAC = 0.22
+# If scale weight does not increase by at least this many grams within FILL_STUCK_ABORT_S, abort fill.
+FILL_STUCK_DELTA_G = 1
+FILL_STUCK_ABORT_S = 0.5
 # Longer period gives the scale time to update before the next speed check.
 FILL_CONTROL_PERIOD_S = 0.12
 # After target hit: pause, short reverse, then stop.
@@ -218,6 +221,14 @@ class PumpFillGui:
         tk.Label(row0, textvariable=self.status_var, fg="#9ab", bg="#0f1419").pack(
             side=tk.LEFT, padx=8
         )
+        self.clock_var = tk.StringVar(value="")
+        tk.Label(
+            row0,
+            textvariable=self.clock_var,
+            fg="#9ab",
+            bg="#0f1419",
+            font=("Segoe UI", 80),
+        ).pack(side=tk.RIGHT, padx=4)
 
         scale_frm = tk.Frame(frm, bg="#0f1419")
         scale_frm.pack(fill=tk.X, **pad)
@@ -241,6 +252,8 @@ class PumpFillGui:
         tk.Button(row_s, text="Diagnose HID", command=self._diagnose_scale_usb, bg="#333", fg="white").pack(
             side=tk.LEFT
         )
+
+        self._tick_clock()
 
         fill_frm = tk.Frame(frm, bg="#0f1419")
         fill_frm.pack(fill=tk.X, **pad)
@@ -609,13 +622,36 @@ class PumpFillGui:
                 try:
                     data = self.scale_device.read(64)
                     if data and len(data) >= 6:
-                        grams = data[4] + (data[5] << 8)
-                        self._last_good_gram_mono = time.monotonic()
-                        with self._grams_lock:
-                            self._latest_grams = grams
-                        self.root.after(0, lambda g=grams: self.weight_var.set(f"Weight: {g} g"))
-                        self.root.after(0, lambda: self.scale_status_var.set("Scale: connected"))
-                        self._scale_failed_reads = 0
+                        unit = data[1]
+                        factor_raw = data[2]
+                        # data[4:6] is a signed 16-bit integer, little-endian.
+                        raw_val = int.from_bytes(bytes((data[4], data[5])), "little", signed=True)
+                        try:
+                            # Factor is a base-10 exponent (negative powers are common for ounces).
+                            scale = 10 ** (factor_raw if factor_raw < 0x80 else factor_raw - 0x100)
+                        except Exception:
+                            scale = 1
+                        grams_f: Optional[float]
+                        if unit == 0x02:  # grams
+                            grams_f = raw_val * scale
+                        elif unit == 0x0B:  # ounces (pounds mode reports in oz with a scale)
+                            ounces = raw_val * scale
+                            grams_f = ounces * 28.349523125
+                        else:
+                            grams_f = None
+
+                        if grams_f is not None:
+                            grams = int(round(grams_f))
+                        else:
+                            grams = None
+
+                        if grams is not None and grams >= 0:
+                            self._last_good_gram_mono = time.monotonic()
+                            with self._grams_lock:
+                                self._latest_grams = grams
+                            self.root.after(0, lambda g=grams: self.weight_var.set(f"Weight: {g} g"))
+                            self.root.after(0, lambda: self.scale_status_var.set("Scale: connected"))
+                            self._scale_failed_reads = 0
                     else:
                         self._scale_failed_reads += 1
                         if self._scale_failed_reads >= SCALE_MAX_FAILED_READS:
@@ -653,6 +689,16 @@ class PumpFillGui:
                         pass
 
             time.sleep(SCALE_UPDATE_INTERVAL)
+
+        # clock update loop (runs on main thread via Tk .after())
+
+    def _tick_clock(self) -> None:
+        try:
+            now = time.strftime("%H:%M:%S")
+        except Exception:
+            now = ""
+        self.clock_var.set(now)
+        self.root.after(1000, self._tick_clock)
 
     def _get_grams(self) -> Optional[int]:
         with self._grams_lock:
@@ -816,6 +862,8 @@ class PumpFillGui:
                     f"(starts when < {zone} g to go)"
                 )
             no_gram_since: Optional[float] = None
+            last_g_for_increase = start_g
+            last_increase_mono = time.monotonic()
             use_time_ramp_down = target_g > FILL_VERY_LARGE_TARGET_THRESHOLD_G
             t_ramp_down_start: Optional[float] = None
             speed_ramp_down_start: Optional[int] = None
@@ -853,6 +901,18 @@ class PumpFillGui:
                     time.sleep(FILL_CONTROL_PERIOD_S)
                     continue
                 no_gram_since = None
+
+                # Abort if grams are not increasing for too long (overflow / stuck safety).
+                if g > last_g_for_increase + FILL_STUCK_DELTA_G:
+                    last_g_for_increase = g
+                    last_increase_mono = now
+                elif now - last_increase_mono > FILL_STUCK_ABORT_S:
+                    self._log("# fill abort: scale weight not increasing (stuck / overflow safety)")
+                    self._fill_abort.set()
+                    self.root.after(
+                        0, lambda: self.fill_status_var.set("Fill: grams not increasing — pump stopped")
+                    )
+                    break
 
                 if g >= target_g:
                     self._log(f"# target reached {g} g")
