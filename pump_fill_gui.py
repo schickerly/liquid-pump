@@ -581,7 +581,7 @@ class PumpFillGui:
                 raise OSError("No Dymo scale found (quit Dymo app, replug USB)")
             self.scale_device = dev
             self._scale_failed_reads = 0
-            self.scale_status_var.set("Scale: connected")
+            self.scale_status_var.set("Scale: connected, waiting for weight")
             self._log("# scale connected")
         except Exception as exc:
             self.scale_device = None
@@ -622,9 +622,11 @@ class PumpFillGui:
                 try:
                     data = self.scale_device.read(64)
                     if data and len(data) >= 6:
-                        unit = data[1]
-                        factor_raw = data[2]
-                        # data[4:6] is a signed 16-bit integer, little-endian.
+                        # Dymo packets often include a report-id/status byte first:
+                        # [report/status, status, unit, factor, value_lo, value_hi]
+                        # Older code used data[4:6] successfully, so unit/factor live at [2]/[3].
+                        unit = data[2]
+                        factor_raw = data[3]
                         raw_val = int.from_bytes(bytes((data[4], data[5])), "little", signed=True)
                         try:
                             # Factor is a base-10 exponent (negative powers are common for ounces).
@@ -652,6 +654,15 @@ class PumpFillGui:
                             self.root.after(0, lambda g=grams: self.weight_var.set(f"Weight: {g} g"))
                             self.root.after(0, lambda: self.scale_status_var.set("Scale: connected"))
                             self._scale_failed_reads = 0
+                        else:
+                            self._scale_failed_reads += 1
+                            if self._scale_failed_reads >= SCALE_MAX_FAILED_READS:
+                                with self._grams_lock:
+                                    self._latest_grams = None
+                                self.root.after(
+                                    0, lambda: self.scale_status_var.set("Scale: unsupported unit / no weight")
+                                )
+                                self.root.after(0, lambda: self.weight_var.set("Weight: -- g"))
                     else:
                         self._scale_failed_reads += 1
                         if self._scale_failed_reads >= SCALE_MAX_FAILED_READS:
