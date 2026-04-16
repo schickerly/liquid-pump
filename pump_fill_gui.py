@@ -232,14 +232,42 @@ class PumpFillGui:
 
         scale_frm = tk.Frame(frm, bg="#0f1419")
         scale_frm.pack(fill=tk.X, **pad)
+        scale_top = tk.Frame(scale_frm, bg="#0f1419")
+        scale_top.pack(fill=tk.X)
         self.weight_var = tk.StringVar(value="Weight: -- g")
         tk.Label(
-            scale_frm,
+            scale_top,
             textvariable=self.weight_var,
             font=("Segoe UI", 32),
             fg="white",
             bg="#0f1419",
-        ).pack(anchor=tk.W)
+        ).pack(side=tk.LEFT, anchor=tk.W)
+        speed_box = tk.Frame(scale_top, bg="#0f1419")
+        speed_box.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(16, 0))
+        tk.Label(
+            speed_box,
+            text=f"Pump speed % (default {FILL_SPEED_START_PCT})",
+            fg="#9ab",
+            bg="#0f1419",
+            font=("Segoe UI", 9),
+        ).pack(anchor=tk.E)
+        self.user_fill_speed_var = tk.IntVar(value=FILL_SPEED_START_PCT)
+        self.user_speed_scale = tk.Scale(
+            speed_box,
+            from_=USER_PUMP_SPEED_SLIDER_MIN,
+            to=USER_PUMP_SPEED_SLIDER_MAX,
+            orient=tk.HORIZONTAL,
+            variable=self.user_fill_speed_var,
+            bg="#1a222c",
+            fg="white",
+            highlightthickness=0,
+            troughcolor="#333",
+            length=320,
+            showvalue=1,
+        )
+        self.user_speed_scale.pack(anchor=tk.E, fill=tk.X)
+        self.user_fill_speed_var.trace_add("write", lambda *_: self._refresh_user_speed_cache())
+        self._refresh_user_speed_cache()
         row_s = tk.Frame(scale_frm, bg="#0f1419")
         row_s.pack(fill=tk.X)
         self.scale_status_var = tk.StringVar(value="Scale: …")
@@ -281,25 +309,6 @@ class PumpFillGui:
             wraplength=520,
             justify=tk.LEFT,
         ).pack(anchor=tk.W, pady=(6, 0))
-        self.user_fill_speed_var = tk.IntVar(value=FILL_SPEED_START_PCT)
-        spd_row = tk.Frame(fill_frm, bg="#0f1419")
-        spd_row.pack(fill=tk.X, pady=(0, 4))
-        self.user_speed_scale = tk.Scale(
-            spd_row,
-            from_=USER_PUMP_SPEED_SLIDER_MIN,
-            to=USER_PUMP_SPEED_SLIDER_MAX,
-            orient=tk.HORIZONTAL,
-            variable=self.user_fill_speed_var,
-            bg="#1a222c",
-            fg="white",
-            highlightthickness=0,
-            troughcolor="#333",
-            length=380,
-            showvalue=1,
-        )
-        self.user_speed_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self.user_fill_speed_var.trace_add("write", lambda *_: self._refresh_user_speed_cache())
-        self._refresh_user_speed_cache()
 
         self.fill_status_var = tk.StringVar(value="Fill: idle")
         tk.Label(
