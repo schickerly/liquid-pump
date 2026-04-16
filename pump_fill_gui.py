@@ -46,7 +46,7 @@ FILL_SPEED_MIN_PCT = 5
 FILL_APPROACH_MIN_G = 55
 FILL_APPROACH_FRAC = 0.22
 # After fill starts, wait this long before enabling the stuck-weight safety.
-FILL_STUCK_GRACE_S = 1.5
+FILL_STUCK_GRACE_S = 2.5
 # If scale weight does not increase by at least this many grams within FILL_STUCK_ABORT_S, abort fill.
 FILL_STUCK_DELTA_G = 1
 FILL_STUCK_ABORT_S = 0.5
