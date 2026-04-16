@@ -398,8 +398,9 @@ class PumpFillGui:
             frm,
             text=(
                 f"Foot pedal '{FOOT_PEDAL_KEY}': start/stop fill or purge; 'b' never types in target box. "
-                "Purge speed = slider (change while purging). Prime is forward @ "
-                f"{PRIME_SPEED_PCT}% (not slider). Global hook may need Run as administrator."
+                "Purge speed = slider (change while purging). Prime uses target weight (g), forward @ "
+                f"{PRIME_SPEED_PCT}% with same slow-down near target; stops if scale disconnects. "
+                "Global hook may need Run as administrator."
             ),
             fg="#567",
             bg="#0f1419",
@@ -867,17 +868,98 @@ class PumpFillGui:
         self._stop_purge()
         self._stop_prime()
 
-    def _run_prime(self) -> None:
+    def _run_prime(self, target_g: int, start_g: int) -> None:
+        last_sent: Optional[int] = None
         try:
+            zone = _approach_zone_for_fill(target_g)
+            prime_t0 = time.monotonic()
             self._serial_write("D F", log=True)
-            self._serial_write(f"S {PRIME_SPEED_PCT}", log=True)
             self.root.after(0, lambda: self.fill_status_var.set("Prime: running"))
-            self.root.after(
-                0,
-                lambda: self.pump_speed_var.set(f"Pump: {PRIME_SPEED_PCT}% forward (prime)"),
-            )
+            use_time_ramp_down = target_g > FILL_VERY_LARGE_TARGET_THRESHOLD_G
+            t_ramp_down_start: Optional[float] = None
+            speed_ramp_down_start: Optional[int] = None
+            no_gram_since: Optional[float] = None
             while not self._prime_stop.is_set():
-                time.sleep(0.05)
+                if self.scale_device is None:
+                    self._log("# prime abort: scale USB disconnected")
+                    self._prime_stop.set()
+                    self.root.after(
+                        0, lambda: self.fill_status_var.set("Prime: scale lost — pump stopped")
+                    )
+                    break
+                now = time.monotonic()
+                if (
+                    self._last_good_gram_mono > 0
+                    and now - self._last_good_gram_mono > FILL_SCALE_STALE_PACKET_ABORT_S
+                ):
+                    self._log("# prime abort: scale stopped sending (off / sleep / loose USB)")
+                    self._prime_stop.set()
+                    self.root.after(
+                        0, lambda: self.fill_status_var.set("Prime: scale lost — pump stopped")
+                    )
+                    break
+
+                g = self._get_grams()
+                if g is None:
+                    if no_gram_since is None:
+                        no_gram_since = time.monotonic()
+                    elif time.monotonic() - no_gram_since > FILL_SCALE_NO_GRAMS_ABORT_S:
+                        self._log("# prime abort: no scale weight for too long")
+                        self._prime_stop.set()
+                        self.root.after(
+                            0, lambda: self.fill_status_var.set("Prime: scale lost — pump stopped")
+                        )
+                        break
+                    time.sleep(FILL_CONTROL_PERIOD_S)
+                    continue
+                no_gram_since = None
+
+                if g >= target_g:
+                    self._log(f"# prime: reached target {g} g")
+                    break
+
+                remaining = target_g - g
+                eff_max = _fill_effective_max_pct(
+                    target_g, PRIME_SPEED_PCT, time.monotonic() - prime_t0
+                )
+                if use_time_ramp_down and remaining < zone:
+                    if t_ramp_down_start is None:
+                        t_ramp_down_start = time.monotonic()
+                        speed_ramp_down_start = max(
+                            FILL_SPEED_MIN_PCT + 1, min(100, int(eff_max))
+                        )
+                    elapsed_rd = time.monotonic() - t_ramp_down_start
+                    vl_floor = FILL_VERY_LARGE_RAMP_DOWN_MIN_PCT
+                    if elapsed_rd >= FILL_VERY_LARGE_RAMP_DOWN_S:
+                        speed = vl_floor
+                    else:
+                        frac = 1.0 - elapsed_rd / FILL_VERY_LARGE_RAMP_DOWN_S
+                        speed = int(
+                            round(
+                                vl_floor + (speed_ramp_down_start - vl_floor) * frac
+                            )
+                        )
+                        speed = max(
+                            vl_floor,
+                            min(speed_ramp_down_start, speed),
+                        )
+                else:
+                    speed = _speed_for_remaining(remaining, target_g, eff_max, zone)
+                if speed != last_sent:
+                    self._serial_write(f"S {speed}", log=True)
+                    last_sent = speed
+                rd_note = (
+                    f"{FILL_VERY_LARGE_RAMP_DOWN_S:.0f}s time rampdown"
+                    if use_time_ramp_down and remaining < zone
+                    else f"slow band {zone} g"
+                )
+                self.root.after(
+                    0,
+                    lambda sp=speed, rem=remaining, note=rd_note: self.pump_speed_var.set(
+                        f"Pump: {sp}% forward (prime)  ( {rem} g to go, {note} )"
+                    ),
+                )
+                time.sleep(FILL_CONTROL_PERIOD_S)
         finally:
             self._serial_write("STOP", log=False)
             self._serial_write("D F", log=False)
@@ -899,11 +981,38 @@ class PumpFillGui:
         if not self.ser or not self.ser.is_open:
             self._log("# connect serial for prime")
             return
+        target = self._parse_target_weight()
+        if target is None:
+            self._log("# prime: enter target weight (g), same field as fill")
+            self.fill_status_var.set("Prime: enter target (g)")
+            return
+        if not self._scale_ready_for_fill():
+            self._log("# prime: scale not ready — auto-reconnecting")
+            self.fill_status_var.set("Prime: connecting scale…")
+            self._reconnect_scale()
+            if not self._wait_scale_ready_for_fill():
+                self._log("# prime: scale still not ready after auto-reconnect")
+                self.fill_status_var.set("Prime: scale not ready")
+                return
+        g = self._get_grams()
+        if g is None:
+            self._log("# prime: no scale reading")
+            self.fill_status_var.set("Prime: waiting for scale")
+            return
+        if g >= target:
+            self._log("# prime: already at or above target")
+            self.fill_status_var.set("Prime: at target")
+            return
         self._prime_stop.clear()
         self._prime_active = True
-        self._prime_thread = threading.Thread(target=self._run_prime, daemon=True)
+        self._prime_thread = threading.Thread(
+            target=self._run_prime, args=(target, g), daemon=True
+        )
         self._prime_thread.start()
-        self._log(f"# prime: forward @ {PRIME_SPEED_PCT}% (Prime stop when done)")
+        self._log(
+            f"# prime start → target {target} g (from {g} g), max {PRIME_SPEED_PCT}% forward "
+            "(stops at target, on scale loss, or Prime stop)"
+        )
 
     def _stop_prime(self) -> None:
         if not self._prime_active:
