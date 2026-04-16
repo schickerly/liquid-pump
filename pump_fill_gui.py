@@ -45,6 +45,8 @@ FILL_SPEED_MIN_PCT = 5
 # Slow-down band: at least this many grams before target, or this fraction of target (whichever is larger).
 FILL_APPROACH_MIN_G = 55
 FILL_APPROACH_FRAC = 0.22
+# After fill starts, wait this long before enabling the stuck-weight safety.
+FILL_STUCK_GRACE_S = 1.5
 # If scale weight does not increase by at least this many grams within FILL_STUCK_ABORT_S, abort fill.
 FILL_STUCK_DELTA_G = 1
 FILL_STUCK_ABORT_S = 0.5
@@ -922,11 +924,15 @@ class PumpFillGui:
                     continue
                 no_gram_since = None
 
-                # Abort if grams are not increasing for too long (overflow / stuck safety).
+                # Abort if grams are not increasing for too long (overflow / stuck safety),
+                # but ignore the first moment after pump start while fluid is still reaching the bottle.
                 if g > last_g_for_increase + FILL_STUCK_DELTA_G:
                     last_g_for_increase = g
                     last_increase_mono = now
-                elif now - last_increase_mono > FILL_STUCK_ABORT_S:
+                elif (
+                    now - fill_t0 >= FILL_STUCK_GRACE_S
+                    and now - last_increase_mono > FILL_STUCK_ABORT_S
+                ):
                     self._log("# fill abort: scale weight not increasing (stuck / overflow safety)")
                     self._fill_abort.set()
                     self.root.after(
