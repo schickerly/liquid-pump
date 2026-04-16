@@ -69,6 +69,8 @@ SCALE_KEEPALIVE_INTERVAL_S = 45.0
 SCALE_KEEPALIVE_READ_BURST = 30
 # Fill requires a recent scale reading (swap container / loose USB → must reconnect).
 GRAM_STALE_MAX_S = 5.0
+# After auto-reconnect on fill start, wait this long for a live weight before giving up.
+FILL_SCALE_AUTO_RECONNECT_WAIT_S = 3.0
 # During fill: stop pump if scale powers off, sleeps, or USB drops (e.g. while priming).
 FILL_SCALE_NO_GRAMS_ABORT_S = 1.5
 FILL_SCALE_STALE_PACKET_ABORT_S = 2.0
@@ -762,6 +764,14 @@ class PumpFillGui:
             return False
         return True
 
+    def _wait_scale_ready_for_fill(self) -> bool:
+        deadline = time.monotonic() + FILL_SCALE_AUTO_RECONNECT_WAIT_S
+        while time.monotonic() < deadline:
+            if self._scale_ready_for_fill():
+                return True
+            time.sleep(0.05)
+        return self._scale_ready_for_fill()
+
     # --- fill ---
     def _start_fill(self) -> None:
         with self._fill_start_lock:
@@ -777,9 +787,16 @@ class PumpFillGui:
                 self.fill_status_var.set("Fill: connect serial")
                 return
             if not self._scale_ready_for_fill():
-                self._log("# scale must be connected with a live reading (reconnect / wait for weight)")
-                self.fill_status_var.set("Fill: scale not ready")
-                return
+                self._log("# fill: scale not ready — auto-reconnecting")
+                self.fill_status_var.set("Fill: connecting scale…")
+                self._reconnect_scale()
+                if not self._wait_scale_ready_for_fill():
+                    self._log(
+                        "# scale still not ready after auto-reconnect (replug USB or use Reconnect scale)"
+                    )
+                    self.fill_status_var.set("Fill: scale not ready")
+                    return
+                self._log("# fill: scale ready after auto-reconnect")
             target = self._parse_target_weight()
             if target is None:
                 self._log("# enter a target weight (g), whole number > 0")
