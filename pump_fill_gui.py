@@ -1,7 +1,7 @@
 """
 Auto-fill: Dymo M10 scale + Arduino pump (S/D/STOP protocol).
 
-Starts at 33% forward (targets over 800 g ramp to 66% over 1 s, capped by slider), slows near target,
+Starts at 33% forward (targets over 800 g ramp to 66% over 2 s, capped by slider), slows near target,
 targets over 2000 g use a 1 s time-based final slowdown, stops at target, brief reverse to reduce drips.
 """
 
@@ -34,7 +34,7 @@ FILL_SPEED_START_PCT = 33
 # Targets above this use a higher bulk cap and a ramp-up from FILL_SPEED_START_PCT.
 FILL_LARGE_TARGET_THRESHOLD_G = 800
 FILL_LARGE_TARGET_BULK_CAP_PCT = 66
-FILL_LARGE_TARGET_RAMP_UP_S = 1.0
+FILL_LARGE_TARGET_RAMP_UP_S = 2.0
 # Above this, end-of-fill slowdown is time-based (wall clock), not the gram band curve.
 FILL_VERY_LARGE_TARGET_THRESHOLD_G = 2000
 FILL_VERY_LARGE_RAMP_DOWN_S = 1.0
