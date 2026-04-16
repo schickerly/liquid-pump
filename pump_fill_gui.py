@@ -78,6 +78,8 @@ FILL_SCALE_STALE_PACKET_ABORT_S = 2.0
 # --- Purge (line clear) — speed comes from UI slider (same as fill max). ---
 USER_PUMP_SPEED_SLIDER_MIN = 10
 USER_PUMP_SPEED_SLIDER_MAX = 100
+# Forward prime (line fill / de-air) — fixed speed, not the slider.
+PRIME_SPEED_PCT = 100
 
 FOOT_PEDAL_KEY = "b"
 # Short debounce avoids double start when both global hook and Tk see the same pedal press.
@@ -187,6 +189,10 @@ class PumpFillGui:
         self._purge_thread: Optional[threading.Thread] = None
         self._purge_stop = threading.Event()
         self._purge_active = False
+
+        self._prime_thread: Optional[threading.Thread] = None
+        self._prime_stop = threading.Event()
+        self._prime_active = False
 
         self._last_good_gram_mono = 0.0
         self._last_scale_keepalive_mono = 0.0
@@ -368,13 +374,32 @@ class PumpFillGui:
             fg="white",
             font=("Segoe UI", 12),
             width=10,
+        ).pack(side=tk.LEFT, padx=(0, 8))
+        tk.Button(
+            btn_row,
+            text="Prime start",
+            command=self._start_prime,
+            bg="#1a5c66",
+            fg="white",
+            font=("Segoe UI", 12),
+            width=11,
+        ).pack(side=tk.LEFT, padx=(0, 8))
+        tk.Button(
+            btn_row,
+            text="Prime stop",
+            command=self._stop_prime,
+            bg="#0f4a52",
+            fg="white",
+            font=("Segoe UI", 12),
+            width=10,
         ).pack(side=tk.LEFT)
 
         tk.Label(
             frm,
             text=(
                 f"Foot pedal '{FOOT_PEDAL_KEY}': start/stop fill or purge; 'b' never types in target box. "
-                "Purge speed = slider (change while purging). Global hook may need Run as administrator."
+                "Purge speed = slider (change while purging). Prime is forward @ "
+                f"{PRIME_SPEED_PCT}% (not slider). Global hook may need Run as administrator."
             ),
             fg="#567",
             bg="#0f1419",
@@ -782,6 +807,10 @@ class PumpFillGui:
                 self._log("# stop purge before starting fill")
                 self.fill_status_var.set("Fill: stop purge first")
                 return
+            if self._prime_active:
+                self._log("# stop prime before starting fill")
+                self.fill_status_var.set("Fill: stop prime first")
+                return
             if not self.ser or not self.ser.is_open:
                 self._log("# connect serial first")
                 self.fill_status_var.set("Fill: connect serial")
@@ -836,6 +865,52 @@ class PumpFillGui:
     def _stop_fill_and_purge(self) -> None:
         self._abort_fill()
         self._stop_purge()
+        self._stop_prime()
+
+    def _run_prime(self) -> None:
+        try:
+            self._serial_write("D F", log=True)
+            self._serial_write(f"S {PRIME_SPEED_PCT}", log=True)
+            self.root.after(0, lambda: self.fill_status_var.set("Prime: running"))
+            self.root.after(
+                0,
+                lambda: self.pump_speed_var.set(f"Pump: {PRIME_SPEED_PCT}% forward (prime)"),
+            )
+            while not self._prime_stop.is_set():
+                time.sleep(0.05)
+        finally:
+            self._serial_write("STOP", log=False)
+            self._serial_write("D F", log=False)
+            self._prime_active = False
+            self.root.after(0, lambda: self.pump_speed_var.set("Pump: —"))
+            self.root.after(0, lambda: self.fill_status_var.set("Prime: idle"))
+            self._log("# prime stopped")
+
+    def _start_prime(self) -> None:
+        if self._prime_active:
+            self._log("# prime already running")
+            return
+        if self._fill_active:
+            self._log("# stop fill before prime")
+            return
+        if self._purge_active:
+            self._log("# stop purge before prime")
+            return
+        if not self.ser or not self.ser.is_open:
+            self._log("# connect serial for prime")
+            return
+        self._prime_stop.clear()
+        self._prime_active = True
+        self._prime_thread = threading.Thread(target=self._run_prime, daemon=True)
+        self._prime_thread.start()
+        self._log(f"# prime: forward @ {PRIME_SPEED_PCT}% (Prime stop when done)")
+
+    def _stop_prime(self) -> None:
+        if not self._prime_active:
+            return
+        self._prime_stop.set()
+        self._serial_write("STOP", log=False)
+        self._serial_write("D F", log=False)
 
     def _run_purge(self) -> None:
         try:
@@ -863,6 +938,9 @@ class PumpFillGui:
     def _start_purge(self) -> None:
         if self._purge_active:
             self._log("# purge already running")
+            return
+        if self._prime_active:
+            self._log("# stop prime before purge")
             return
         if self._fill_active:
             self._log("# stop fill before purge")
@@ -1091,6 +1169,9 @@ class PumpFillGui:
         if self._purge_active:
             self._stop_purge()
             return
+        if self._prime_active:
+            self._stop_prime()
+            return
         if self._fill_active:
             self._abort_fill()
             return
@@ -1099,6 +1180,7 @@ class PumpFillGui:
     def _on_close(self) -> None:
         self._fill_abort.set()
         self._purge_stop.set()
+        self._prime_stop.set()
         self._scale_stop.set()
         try:
             if self.scale_device:
