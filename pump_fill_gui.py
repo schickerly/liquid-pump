@@ -204,6 +204,7 @@ class PumpFillGui:
         self._last_sent_speed: Optional[int] = None
         self._user_speed_lock = threading.Lock()
         self._user_speed_cached = FILL_SPEED_START_PCT
+        self._syncing_user_speed = False
 
         self.root = tk.Tk()
         self.root.title("Pump fill (scale + Arduino)")
@@ -262,21 +263,39 @@ class PumpFillGui:
             font=("Segoe UI", 9),
         ).pack(anchor=tk.E)
         self.user_fill_speed_var = tk.IntVar(value=FILL_SPEED_START_PCT)
+        self.user_speed_entry_var = tk.StringVar(value=str(FILL_SPEED_START_PCT))
+        speed_row = tk.Frame(speed_box, bg="#0f1419")
+        speed_row.pack(anchor=tk.E, fill=tk.X)
         self.user_speed_scale = tk.Scale(
-            speed_box,
+            speed_row,
             from_=USER_PUMP_SPEED_SLIDER_MIN,
             to=USER_PUMP_SPEED_SLIDER_MAX,
             orient=tk.HORIZONTAL,
             variable=self.user_fill_speed_var,
+            resolution=1,
+            tickinterval=10,
             bg="#1a222c",
             fg="white",
             highlightthickness=0,
             troughcolor="#333",
-            length=320,
-            showvalue=1,
+            length=280,
+            showvalue=0,
         )
-        self.user_speed_scale.pack(anchor=tk.E, fill=tk.X)
-        self.user_fill_speed_var.trace_add("write", lambda *_: self._refresh_user_speed_cache())
+        self.user_speed_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        speed_entry = tk.Entry(
+            speed_row,
+            textvariable=self.user_speed_entry_var,
+            width=5,
+            justify="center",
+            font=("Segoe UI", 11),
+            bg="#1a222c",
+            fg="white",
+            insertbackground="white",
+        )
+        speed_entry.pack(side=tk.RIGHT, padx=(8, 0))
+        speed_entry.bind("<Return>", self._commit_user_speed_entry)
+        speed_entry.bind("<FocusOut>", self._commit_user_speed_entry)
+        self.user_fill_speed_var.trace_add("write", self._on_user_speed_var_changed)
         self._refresh_user_speed_cache()
         row_s = tk.Frame(scale_frm, bg="#0f1419")
         row_s.pack(fill=tk.X)
@@ -308,7 +327,8 @@ class PumpFillGui:
         tk.Label(
             fill_frm,
             text=(
-                f"Max pump speed ({USER_PUMP_SPEED_SLIDER_MIN}–{USER_PUMP_SPEED_SLIDER_MAX}%), default {FILL_SPEED_START_PCT}% — "
+                f"Max pump speed ({USER_PUMP_SPEED_SLIDER_MIN}–{USER_PUMP_SPEED_SLIDER_MAX}%), default {FILL_SPEED_START_PCT}% "
+                f"(slider or type exact % in box) — "
                 f"targets ≤{FILL_LARGE_TARGET_THRESHOLD_G} g use this for fill (change anytime, including during fill); "
                 f"targets above that ramp to ≥{FILL_LARGE_TARGET_BULK_CAP_PCT}% as configured. "
                 f"Ramps down to {FILL_SPEED_MIN_PCT}% near target. Purge uses this in reverse."
@@ -753,6 +773,43 @@ class PumpFillGui:
     def _get_grams(self) -> Optional[int]:
         with self._grams_lock:
             return self._latest_grams
+
+    def _on_user_speed_var_changed(self, *_: object) -> None:
+        """Sync entry text to slider and refresh the thread-safe speed cache."""
+        if self._syncing_user_speed:
+            return
+        self._syncing_user_speed = True
+        try:
+            self.user_speed_entry_var.set(str(self.user_fill_speed_var.get()))
+            self._refresh_user_speed_cache()
+        finally:
+            self._syncing_user_speed = False
+
+    def _commit_user_speed_entry(self, _event: Optional[object] = None) -> None:
+        """Apply typed pump speed % (slider min–max); invalid input reverts to the slider value."""
+        if self._syncing_user_speed:
+            return
+        raw = self.user_speed_entry_var.get().strip()
+        try:
+            v = int(raw, 10)
+        except ValueError:
+            self._syncing_user_speed = True
+            try:
+                self.user_speed_entry_var.set(str(self.user_fill_speed_var.get()))
+            finally:
+                self._syncing_user_speed = False
+            return
+        clamped = max(
+            USER_PUMP_SPEED_SLIDER_MIN,
+            min(USER_PUMP_SPEED_SLIDER_MAX, v),
+        )
+        self._syncing_user_speed = True
+        try:
+            self.user_fill_speed_var.set(clamped)
+            self.user_speed_entry_var.set(str(clamped))
+            self._refresh_user_speed_cache()
+        finally:
+            self._syncing_user_speed = False
 
     def _refresh_user_speed_cache(self) -> None:
         """Keep slider value in a lock-protected int so fill/purge threads never read Tk vars off the main thread."""
