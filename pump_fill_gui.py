@@ -205,6 +205,8 @@ class PumpFillGui:
         self._user_speed_lock = threading.Lock()
         self._user_speed_cached = FILL_SPEED_START_PCT
         self._syncing_user_speed = False
+        self._text_input_focused = False
+        self._text_input_focus_lock = threading.Lock()
 
         self.root = tk.Tk()
         self.root.title("Pump fill (scale + Arduino)")
@@ -266,23 +268,25 @@ class PumpFillGui:
         self.user_speed_entry_var = tk.StringVar(value=str(FILL_SPEED_START_PCT))
         speed_row = tk.Frame(speed_box, bg="#0f1419")
         speed_row.pack(anchor=tk.E, fill=tk.X)
+        # 0–100 range gives integer steps on Windows; values below MIN are clamped in software.
         self.user_speed_scale = tk.Scale(
             speed_row,
-            from_=USER_PUMP_SPEED_SLIDER_MIN,
-            to=USER_PUMP_SPEED_SLIDER_MAX,
+            from_=0,
+            to_=100,
             orient=tk.HORIZONTAL,
             variable=self.user_fill_speed_var,
             resolution=1,
             tickinterval=10,
+            command=self._on_speed_scale_moved,
             bg="#1a222c",
             fg="white",
             highlightthickness=0,
             troughcolor="#333",
-            length=280,
-            showvalue=0,
+            length=320,
+            showvalue=1,
         )
         self.user_speed_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        speed_entry = tk.Entry(
+        self.user_speed_entry = tk.Entry(
             speed_row,
             textvariable=self.user_speed_entry_var,
             width=5,
@@ -292,10 +296,10 @@ class PumpFillGui:
             fg="white",
             insertbackground="white",
         )
-        speed_entry.pack(side=tk.RIGHT, padx=(8, 0))
-        speed_entry.bind("<Return>", self._commit_user_speed_entry)
-        speed_entry.bind("<FocusOut>", self._commit_user_speed_entry)
-        self.user_fill_speed_var.trace_add("write", self._on_user_speed_var_changed)
+        self.user_speed_entry.pack(side=tk.RIGHT, padx=(8, 0))
+        self.user_speed_entry.bind("<Return>", self._commit_user_speed_entry)
+        self.user_speed_entry.bind("<FocusIn>", self._on_text_focus_in)
+        self.user_speed_entry.bind("<FocusOut>", self._on_speed_entry_focus_out)
         self._refresh_user_speed_cache()
         row_s = tk.Frame(scale_frm, bg="#0f1419")
         row_s.pack(fill=tk.X)
@@ -320,9 +324,18 @@ class PumpFillGui:
             fg="#9ab",
             bg="#0f1419",
         ).pack(anchor=tk.W)
-        self.target_entry = tk.Entry(fill_frm, font=("Segoe UI", 22), justify="center", width=12)
+        self.target_entry = tk.Entry(
+            fill_frm,
+            font=("Segoe UI", 22),
+            justify="center",
+            width=12,
+            bg="#1a222c",
+            fg="white",
+            insertbackground="white",
+        )
         self.target_entry.pack(anchor=tk.W, pady=4)
         self.target_entry.bind("<KeyPress>", self._target_entry_key)
+        self._bind_text_input_focus(self.target_entry)
 
         tk.Label(
             fill_frm,
@@ -774,42 +787,68 @@ class PumpFillGui:
         with self._grams_lock:
             return self._latest_grams
 
-    def _on_user_speed_var_changed(self, *_: object) -> None:
-        """Sync entry text to slider and refresh the thread-safe speed cache."""
+    def _bind_text_input_focus(self, widget: tk.Widget) -> None:
+        """Track when a text field has focus so pedal hooks do not steal keystrokes."""
+        widget.bind("<FocusIn>", self._on_text_focus_in, add="+")
+        widget.bind("<FocusOut>", self._on_text_focus_out, add="+")
+
+    def _on_text_focus_in(self, _event: Optional[object] = None) -> None:
+        with self._text_input_focus_lock:
+            self._text_input_focused = True
+
+    def _on_text_focus_out(self, _event: Optional[object] = None) -> None:
+        with self._text_input_focus_lock:
+            self._text_input_focused = False
+
+    def _text_input_focused_now(self) -> bool:
+        with self._text_input_focus_lock:
+            return self._text_input_focused
+
+    def _clamp_user_speed_pct(self, value: int) -> int:
+        return max(
+            USER_PUMP_SPEED_SLIDER_MIN,
+            min(USER_PUMP_SPEED_SLIDER_MAX, int(value)),
+        )
+
+    def _set_user_speed_pct(self, pct: int, *, update_entry: bool = True) -> None:
+        """Single path to sync slider, optional entry text, and thread-safe cache."""
         if self._syncing_user_speed:
             return
         self._syncing_user_speed = True
         try:
-            self.user_speed_entry_var.set(str(self.user_fill_speed_var.get()))
+            clamped = self._clamp_user_speed_pct(pct)
+            self.user_fill_speed_var.set(clamped)
+            if update_entry:
+                self.user_speed_entry_var.set(str(clamped))
             self._refresh_user_speed_cache()
         finally:
             self._syncing_user_speed = False
 
+    def _on_speed_scale_moved(self, value: str) -> None:
+        """Skip entry overwrite while the user is typing in the speed box."""
+        pct = self._clamp_user_speed_pct(int(float(value)))
+        focused = self.root.focus_get()
+        update_entry = focused is not self.user_speed_entry
+        self._set_user_speed_pct(pct, update_entry=update_entry)
+
+    def _on_speed_entry_focus_out(self, event: Optional[object] = None) -> None:
+        self._on_text_focus_out(event)
+        self._commit_user_speed_entry(event)
+
     def _commit_user_speed_entry(self, _event: Optional[object] = None) -> None:
-        """Apply typed pump speed % (slider min–max); invalid input reverts to the slider value."""
+        """Apply typed pump speed % on Enter or focus leave; invalid input reverts."""
         if self._syncing_user_speed:
             return
         raw = self.user_speed_entry_var.get().strip()
+        if not raw:
+            self._set_user_speed_pct(self.user_fill_speed_var.get())
+            return
         try:
             v = int(raw, 10)
         except ValueError:
-            self._syncing_user_speed = True
-            try:
-                self.user_speed_entry_var.set(str(self.user_fill_speed_var.get()))
-            finally:
-                self._syncing_user_speed = False
+            self._set_user_speed_pct(self.user_fill_speed_var.get())
             return
-        clamped = max(
-            USER_PUMP_SPEED_SLIDER_MIN,
-            min(USER_PUMP_SPEED_SLIDER_MAX, v),
-        )
-        self._syncing_user_speed = True
-        try:
-            self.user_fill_speed_var.set(clamped)
-            self.user_speed_entry_var.set(str(clamped))
-            self._refresh_user_speed_cache()
-        finally:
-            self._syncing_user_speed = False
+        self._set_user_speed_pct(v)
 
     def _refresh_user_speed_cache(self) -> None:
         """Keep slider value in a lock-protected int so fill/purge threads never read Tk vars off the main thread."""
@@ -1293,9 +1332,9 @@ class PumpFillGui:
 
         def on_b(event: tk.Event) -> None:
             w = self.root.focus_get()
-            if w == self.target_entry or w == self.log:
+            if w == self.log:
                 return
-            if w is not None and w.winfo_class() == "Text":
+            if w is not None and w.winfo_class() in ("Entry", "TEntry", "Text"):
                 return
             if (event.keysym or "").lower() == "b" or (event.char or "").lower() == "b":
                 self._foot_pedal_action()
@@ -1309,6 +1348,8 @@ class PumpFillGui:
 
             def hook_fn(event: object) -> bool:
                 try:
+                    if self._text_input_focused_now():
+                        return True
                     et = getattr(event, "event_type", None)
                     if et != keyboard.KEY_DOWN and et != "down":
                         return True
