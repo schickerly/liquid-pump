@@ -84,6 +84,13 @@ PRIME_SPEED_PCT = 100
 FOOT_PEDAL_KEY = "b"
 # Short debounce avoids double start when both global hook and Tk see the same pedal press.
 FOOT_PEDAL_DEBOUNCE_S = 0.15
+# keyboard.hook() runs Python on every system keypress and can make typing lag on slow PCs.
+# Tk binding works when this window is focused (typical fill-station setup). Opt in with PUMP_GLOBAL_PEDAL=1.
+USE_GLOBAL_PEDAL_HOOK = os.environ.get("PUMP_GLOBAL_PEDAL", "").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
 
 # GitHub fine-grained read-only PAT — set to the token’s expiry date (or “created + 90 days”).
 # Edit this when you rotate the token on the field PC. Warning appears TOKEN_WARN_DAYS_BEFORE days before.
@@ -430,10 +437,11 @@ class PumpFillGui:
         tk.Label(
             frm,
             text=(
-                f"Foot pedal '{FOOT_PEDAL_KEY}': start/stop fill or purge; 'b' never types in target box. "
+                f"Foot pedal '{FOOT_PEDAL_KEY}': start/stop fill or purge (window focused); "
+                "'b' never types in target box. "
                 "Purge speed = slider (change while purging). Prime uses target weight (g), forward @ "
                 f"{PRIME_SPEED_PCT}% with same slow-down near target; stops if scale disconnects. "
-                "Global hook may need Run as administrator."
+                "System-wide pedal: set PUMP_GLOBAL_PEDAL=1 (can slow keyboard on weak PCs)."
             ),
             fg="#567",
             bg="#0f1419",
@@ -1343,30 +1351,27 @@ class PumpFillGui:
         self._log("# pedal: Tk binding active (click this app, not the log, then press pedal)")
 
     def _setup_foot_pedal(self) -> None:
+        if not USE_GLOBAL_PEDAL_HOOK:
+            self._log(
+                "# pedal: Tk-only (click this window, then pedal). "
+                "Set PUMP_GLOBAL_PEDAL=1 for system-wide hook (avoid on slow PCs)."
+            )
+            return
         try:
             import keyboard
 
-            def hook_fn(event: object) -> bool:
-                try:
-                    if self._text_input_focused_now():
-                        return True
-                    et = getattr(event, "event_type", None)
-                    if et != keyboard.KEY_DOWN and et != "down":
-                        return True
-                    name = (getattr(event, "name", None) or "").lower()
-                    if name != FOOT_PEDAL_KEY:
-                        return True
-                except Exception:
-                    return True
+            def on_pedal() -> None:
+                if self._text_input_focused_now():
+                    return
                 self.root.after(0, self._foot_pedal_action)
-                return True
 
-            self._keyboard_unhook = keyboard.hook(hook_fn)
-            self._log("# pedal: global hook (keyboard.hook) — if dead, run app as Administrator")
+            keyboard.add_hotkey(FOOT_PEDAL_KEY, on_pedal, suppress=False)
+            self._keyboard_unhook = lambda: keyboard.remove_hotkey(FOOT_PEDAL_KEY)
+            self._log(f"# pedal: global hotkey '{FOOT_PEDAL_KEY}' (PUMP_GLOBAL_PEDAL=1)")
         except ImportError:
-            self._log(f'# pedal: global hook unavailable — "{sys.executable}" -m pip install keyboard')
+            self._log(f'# pedal: global hotkey unavailable — "{sys.executable}" -m pip install keyboard')
         except Exception as exc:
-            self._log(f"# pedal: global hook failed ({exc}) — use Tk: click app window, then pedal")
+            self._log(f"# pedal: global hotkey failed ({exc}) — use Tk: click app window, then pedal")
 
     def _foot_pedal_action(self) -> None:
         now = time.monotonic()
